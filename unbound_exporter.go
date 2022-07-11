@@ -1,6 +1,6 @@
 // Copyright 2017 Kumina, https://kumina.nl/
 // Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
+// you may not use this file except in complian<ce with the License.
 // You may obtain a copy of the License at
 //
 // http://www.apache.org/licenses/LICENSE-2.0
@@ -31,15 +31,12 @@ import (
 
 	"sort"
 
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/promlog"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
-	log = promlog.New(&promlog.Config{})
-
 	unboundUpDesc = prometheus.NewDesc(
 		prometheus.BuildFQName("unbound", "", "up"),
 		"Whether scraping Unbound's metrics was successful.",
@@ -400,7 +397,7 @@ type UnboundExporter struct {
 	tlsConfig    *tls.Config
 }
 
-func NewUnboundExporter(host string, ca string, cert string, key string) (*UnboundExporter, error) {
+func NewUnboundExporter(host string, ca string, cert string, key string, verify bool) (*UnboundExporter, error) {
 	u, err := url.Parse(host)
 	if err != nil {
 		return &UnboundExporter{}, err
@@ -451,6 +448,7 @@ func NewUnboundExporter(host string, ca string, cert string, key string) (*Unbou
 			Certificates: []tls.Certificate{keyPair},
 			RootCAs:      roots,
 			ServerName:   "unbound",
+			InsecureSkipVerify: verify,
 		},
 	}, nil
 }
@@ -470,7 +468,7 @@ func (e *UnboundExporter) Collect(ch chan<- prometheus.Metric) {
 			prometheus.GaugeValue,
 			1.0)
 	} else {
-		_ = level.Error(log).Log("Failed to scrape socket: ", err)
+		log.Errorf("Failed to scrape socket: %s", err)
 		ch <- prometheus.MustNewConstMetric(
 			unboundUpDesc,
 			prometheus.GaugeValue,
@@ -478,19 +476,44 @@ func (e *UnboundExporter) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+func loglevel(opt string) {
+	switch opt {
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	case "warn":
+		log.SetLevel(log.WarnLevel)
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	default:
+		log.Warnln("Unrecognized log level, will default to `info` log level")
+	}
+}
+
 func main() {
 	var (
-		listenAddress = flag.String("web.listen-address", ":9167", "Address to listen on for web interface and telemetry.")
+		logLevel      = flag.String("log.level", "info", "Set log verbosity (log level)")
+
+		portNumber    = flag.String("port", "9167", "The port number to listen on for HTTP requests.")
+		address       = flag.String("address", "0.0.0.0", "The address to listen on for HTTP requests.")
+
 		metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+
 		unboundHost   = flag.String("unbound.host", "tcp://localhost:8953", "Unix or TCP address of Unbound control socket.")
+
 		unboundCa     = flag.String("unbound.ca", "/etc/unbound/unbound_server.pem", "Unbound server certificate.")
 		unboundCert   = flag.String("unbound.cert", "/etc/unbound/unbound_control.pem", "Unbound client certificate.")
 		unboundKey    = flag.String("unbound.key", "/etc/unbound/unbound_control.key", "Unbound client key.")
+
+		unboundVerify = flag.Bool("unbound.verify", false, "Skip verification of Unbound server certificate. This is unsafe.")
 	)
 	flag.Parse()
 
-	_ = level.Info(log).Log("Starting unbound_exporter")
-	exporter, err := NewUnboundExporter(*unboundHost, *unboundCa, *unboundCert, *unboundKey)
+	loglevel(*logLevel)
+
+	log.Info("Starting unbound_exporter")
+	exporter, err := NewUnboundExporter(*unboundHost, *unboundCa, *unboundCert, *unboundKey, *unboundVerify)
 	if err != nil {
 		panic(err)
 	}
@@ -507,7 +530,8 @@ func main() {
 			</body>
 			</html>`))
 	})
-	_ = level.Info(log).Log("Listening on address:port => ", *listenAddress)
-	_ = level.Error(log).Log(http.ListenAndServe(*listenAddress, nil))
+
+	log.Infof("Listening for requests on %s:%s", *address, *portNumber)
+	log.Fatalf("Failed to start web server: %s", http.ListenAndServe(fmt.Sprintf("%s:%s", *address, *portNumber), nil))
 	os.Exit(1)
 }

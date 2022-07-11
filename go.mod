@@ -10,6 +10,7 @@ require (
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.32.1
 	github.com/prometheus/procfs v0.7.3 // indirect
+	github.com/sirupsen/logrus v1.6.0
 	golang.org/x/sys v0.0.0-20211112193437-faf0a1b62c6b // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 )
